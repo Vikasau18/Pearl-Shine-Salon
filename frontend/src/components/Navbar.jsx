@@ -34,25 +34,25 @@ export default function Navbar() {
                 </Link>
 
                 <div className={`navbar-links ${menuOpen ? 'active' : ''}`}>
-                    <Link to="/salons" onClick={() => setMenuOpen(false)}>Explore</Link>
+                    <Link to="/salons" className="nav-link" onClick={() => setMenuOpen(false)}>Explore</Link>
 
                     {user ? (
                         <>
-                            <Link to="/appointments" onClick={() => setMenuOpen(false)}>
-                                <Calendar size={16} /> My Bookings
+                            <Link to="/appointments" className="nav-link" onClick={() => setMenuOpen(false)}>
+                                <Calendar size={18} /> <span>My Bookings</span>
                             </Link>
-                            <Link to="/favorites" onClick={() => setMenuOpen(false)}>
-                                <Heart size={16} /> Favorites
+                            <Link to="/favorites" className="nav-link" onClick={() => setMenuOpen(false)}>
+                                <Heart size={18} /> <span>Favorites</span>
                             </Link>
 
                             {(user.role === 'salon_owner' || user.role === 'admin') && (
-                                <Link to="/dashboard" onClick={() => setMenuOpen(false)}>
-                                    <LayoutDashboard size={16} /> Dashboard
+                                <Link to="/dashboard" className="nav-link" onClick={() => setMenuOpen(false)}>
+                                    <LayoutDashboard size={18} /> <span>Dashboard</span>
                                 </Link>
                             )}
 
-                            <Link to="/notifications" className="nav-notif" onClick={() => setMenuOpen(false)}>
-                                <Bell size={16} />
+                            <Link to="/notifications" className="nav-link nav-notif" onClick={() => setMenuOpen(false)}>
+                                <Bell size={18} /> <span>Notifications</span>
                                 {unread > 0 && <span className="notif-badge">{unread}</span>}
                             </Link>
 
@@ -65,12 +65,16 @@ export default function Navbar() {
                                     )}
                                 </div>
                                 <div className="nav-dropdown">
-                                    <div className="nav-dropdown-header">
+                                    <div className="nav-dropdown-header mobile-only">
                                         <strong>{user.name}</strong>
                                         <span>{user.email}</span>
                                     </div>
-                                    <Link to="/profile" onClick={() => setMenuOpen(false)}>Profile</Link>
-                                    <button onClick={handleLogout}><LogOut size={14} /> Logout</button>
+                                    <Link to="/profile" onClick={() => setMenuOpen(false)}>
+                                        <User size={14} /> Profile
+                                    </Link>
+                                    <button onClick={handleLogout}>
+                                        <LogOut size={14} /> Logout
+                                    </button>
                                 </div>
                             </div>
                         </>
