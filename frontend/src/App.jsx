@@ -15,6 +15,8 @@ import MyAppointments from './pages/MyAppointments';
 import Favorites from './pages/Favorites';
 import Notifications from './pages/Notifications';
 import Dashboard from './pages/Dashboard';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 
 import './index.css';
 
@@ -31,6 +33,8 @@ function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/salons" element={<SalonList />} />
             <Route path="/salons/:id" element={<SalonDetail />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
 
             {/* Authenticated */}
             <Route path="/book/:salonId" element={

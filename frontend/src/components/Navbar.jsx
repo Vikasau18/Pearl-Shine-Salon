@@ -34,7 +34,11 @@ export default function Navbar() {
                 </Link>
 
                 <div className={`navbar-links ${menuOpen ? 'active' : ''}`}>
-                    <Link to="/salons" className="nav-link" onClick={() => setMenuOpen(false)}>Explore</Link>
+                    <Link to="/" className="nav-link" onClick={() => setMenuOpen(false)}>Home</Link>
+
+                    {(!user || (user.role !== 'salon_owner' && user.role !== 'admin')) && (
+                        <Link to="/salons" className="nav-link" onClick={() => setMenuOpen(false)}>Explore</Link>
+                    )}
 
                     {user ? (
                         <>

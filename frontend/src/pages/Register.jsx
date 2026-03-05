@@ -16,7 +16,7 @@ export default function Register() {
         try {
             await register(form);
             toast.success('Account created! Welcome!');
-            navigate(form.role === 'salon_owner' ? '/dashboard' : '/');
+            navigate('/');
         } catch (err) {
             toast.error(err.response?.data?.error || 'Registration failed');
         } finally {

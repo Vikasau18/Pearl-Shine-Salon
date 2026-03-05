@@ -1,142 +1,311 @@
-import { Link } from 'react-router-dom';
-import { Scissors, Search, Star, Calendar, Shield, Sparkles, ArrowRight } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { Scissors, Search, Star, Calendar, Shield, Sparkles, ArrowRight, LayoutDashboard, DollarSign, Clock, Users, XCircle, Plus } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import api from '../api/client';
 import SalonCard from '../components/SalonCard';
+import { useAuth } from '../context/AuthContext';
 
 export default function Home() {
-    const [featured, setFeatured] = useState([]);
-    const [search, setSearch] = useState('');
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [featured, setFeatured] = useState([]);
+  const [search, setSearch] = useState('');
+  const [overview, setOverview] = useState({ todays_revenue: 0, todays_appointments: 0, pending_requests: 0, cancelled_today: 0 });
+  const [salons, setSalons] = useState([]);
+  const [showEmergencyModal, setShowEmergencyModal] = useState(false);
+  const [selectedSalonToClose, setSelectedSalonToClose] = useState('');
+  const [isClosing, setIsClosing] = useState(false);
 
-    useEffect(() => {
-        api.get('/salons?limit=6').then(res => setFeatured(res.data.data || [])).catch(() => { });
-    }, []);
+  // We removed the redirect to `/dashboard` so the owner stays on the Home page
 
+  useEffect(() => {
+    if (user && (user.role === 'salon_owner' || user.role === 'admin')) {
+      api.get('/dashboard/overview').then(res => setOverview(res.data)).catch(() => { });
+      api.get('/dashboard/salons').then(res => {
+        setSalons(res.data || []);
+        if (res.data?.length > 0) setSelectedSalonToClose(res.data[0].id);
+      }).catch(() => { });
+    }
+    api.get('/salons?limit=6').then(res => setFeatured(res.data.data || [])).catch(() => { });
+  }, [user]);
+
+  if (user && (user.role === 'salon_owner' || user.role === 'admin')) {
     return (
-        <div className="home-page">
-            {/* Hero */}
-            <section className="hero">
-                <div className="container">
-                    <div className="hero-content">
-                        <div className="hero-badge">
-                            <Sparkles size={16} /> Premium Salon Booking
-                        </div>
-                        <h1>
-                            Discover & Book <span className="gradient-text">Beauty Services</span> Near You
-                        </h1>
-                        <p>Find the best salons, book appointments instantly, and look your best. All in one place.</p>
+      <div className="home-page page">
+        <div className="container" style={{ paddingTop: '40px' }}>
+          <div className="glass" style={{ padding: '40px', borderRadius: 'var(--radius-xl)', textAlign: 'center', marginBottom: '40px', background: 'linear-gradient(135deg, rgba(124,58,237,0.1), rgba(6,182,212,0.05))' }}>
+            <h1 style={{ fontSize: '2.5rem', marginBottom: '16px' }}>Welcome back, <span className="gradient-text">{user.name}</span>!</h1>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', maxWidth: '600px', margin: '0 auto 32px' }}>
+              Manage your beauty business, view appointments, and grow your clientele.
+            </p>
+            <div style={{ display: 'flex', gap: '16px', justifyContent: 'center' }}>
+              <Link to="/dashboard" className="btn btn-primary btn-lg">
+                <LayoutDashboard size={20} /> Go to Dashboard
+              </Link>
+            </div>
+          </div>
 
-                        <div className="hero-search glass">
-                            <Search size={20} />
-                            <input
-                                type="text"
-                                placeholder="Search salons, services, or city..."
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                            />
-                            <Link to={`/salons${search ? `?search=${search}` : ''}`} className="btn btn-primary">
-                                Search
-                            </Link>
-                        </div>
-
-                        <div className="hero-stats">
-                            <div className="hero-stat">
-                                <strong>500+</strong>
-                                <span>Salons</span>
-                            </div>
-                            <div className="hero-stat">
-                                <strong>10K+</strong>
-                                <span>Bookings</span>
-                            </div>
-                            <div className="hero-stat">
-                                <strong>4.8</strong>
-                                <span>Avg Rating</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="hero-visual">
-                        <div className="hero-image-grid">
-                            <img src="https://images.unsplash.com/photo-1560066984-138dadb4c035?w=400" alt="Salon" className="hero-img-1" />
-                            <img src="https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=300" alt="Styling" className="hero-img-2" />
-                            <img src="https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=300" alt="Spa" className="hero-img-3" />
-                        </div>
-                    </div>
+          {/* Today's Snapshot */}
+          <div style={{ marginBottom: '40px' }}>
+            <div className="section-header">
+              <h2>Today's <span className="gradient-text">Snapshot</span></h2>
+            </div>
+            <div className="grid-4">
+              {/* ... stat cards ... */}
+              <div className="stat-card glass">
+                <div className="stat-icon" style={{ background: 'rgba(16,185,129,0.15)', color: 'var(--success)' }}>
+                  <DollarSign size={22} />
                 </div>
-            </section>
-
-            {/* Features */}
-            <section className="features">
-                <div className="container">
-                    <h2>Why Choose <span className="gradient-text">Saloon</span></h2>
-                    <div className="grid-4 features-grid">
-                        <div className="feature-card glass">
-                            <div className="feature-icon" style={{ background: 'rgba(124,58,237,0.15)' }}>
-                                <Search size={24} color="var(--primary)" />
-                            </div>
-                            <h3>Discover Salons</h3>
-                            <p>Browse salons near you with ratings, reviews, and galleries</p>
-                        </div>
-                        <div className="feature-card glass">
-                            <div className="feature-icon" style={{ background: 'rgba(6,182,212,0.15)' }}>
-                                <Calendar size={24} color="var(--accent)" />
-                            </div>
-                            <h3>Easy Booking</h3>
-                            <p>Book appointments in seconds with real-time availability</p>
-                        </div>
-                        <div className="feature-card glass">
-                            <div className="feature-icon" style={{ background: 'rgba(16,185,129,0.15)' }}>
-                                <Star size={24} color="var(--success)" />
-                            </div>
-                            <h3>Verified Reviews</h3>
-                            <p>Read genuine reviews from verified customers</p>
-                        </div>
-                        <div className="feature-card glass">
-                            <div className="feature-icon" style={{ background: 'rgba(244,63,94,0.15)' }}>
-                                <Shield size={24} color="var(--secondary)" />
-                            </div>
-                            <h3>Secure Payments</h3>
-                            <p>Safe and secure payment processing for all services</p>
-                        </div>
-                    </div>
+                <div className="stat-value">${(overview?.todays_revenue || 0).toFixed(0)}</div>
+                <div className="stat-label">Today's Revenue</div>
+              </div>
+              <div className="stat-card glass">
+                <div className="stat-icon" style={{ background: 'rgba(124,58,237,0.15)', color: 'var(--primary)' }}>
+                  <Calendar size={22} />
                 </div>
-            </section>
-
-            {/* Featured Salons */}
-            {featured.length > 0 && (
-                <section className="featured-section">
-                    <div className="container">
-                        <div className="section-header">
-                            <h2>Featured <span className="gradient-text">Salons</span></h2>
-                            <Link to="/salons" className="btn btn-outline btn-sm">
-                                View All <ArrowRight size={16} />
-                            </Link>
-                        </div>
-                        <div className="grid-3">
-                            {featured.map(salon => (
-                                <SalonCard key={salon.id} salon={salon} />
-                            ))}
-                        </div>
-                    </div>
-                </section>
-            )}
-
-            {/* CTA */}
-            <section className="cta-section">
-                <div className="container">
-                    <div className="cta-card glass">
-                        <div className="cta-content">
-                            <Scissors size={32} />
-                            <h2>Own a Salon?</h2>
-                            <p>Join our platform and reach thousands of customers. Manage appointments, staff, and analytics — all from one dashboard.</p>
-                            <Link to="/register" className="btn btn-primary btn-lg">
-                                Get Started Free <ArrowRight size={20} />
-                            </Link>
-                        </div>
-                    </div>
+                <div className="stat-value">{overview?.todays_appointments || 0}</div>
+                <div className="stat-label">Appointments Today</div>
+              </div>
+              <div className="stat-card glass">
+                <div className="stat-icon" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>
+                  <Clock size={22} />
                 </div>
-            </section>
+                <div className="stat-value">{overview?.pending_requests || 0}</div>
+                <div className="stat-label">Pending Requests</div>
+              </div>
+              <div className="stat-card glass">
+                <div className="stat-icon" style={{ background: 'rgba(244,63,94,0.15)', color: 'var(--secondary)' }}>
+                  <XCircle size={22} />
+                </div>
+                <div className="stat-value">{overview?.cancelled_today || 0}</div>
+                <div className="stat-label">Cancellations Today</div>
+              </div>
+            </div>
+          </div>
 
-            <style>{`
+          {/* Quick Actions */}
+          <div style={{ marginBottom: '40px' }}>
+            <div className="section-header">
+              <h2>Quick <span className="gradient-text">Actions</span></h2>
+            </div>
+            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+              <button
+                className="btn btn-secondary"
+                style={{ background: 'rgba(239,68,68,0.1)', color: 'var(--secondary)', border: '1px solid rgba(239,68,68,0.2)' }}
+                onClick={() => setShowEmergencyModal(true)}
+              >
+                <XCircle size={18} style={{ marginRight: '8px' }} /> Emergency Close Today
+              </button>
+              <Link to="/dashboard" className="btn btn-outline" style={{ border: '1px solid var(--border)' }}>
+                <Plus size={18} style={{ marginRight: '8px' }} /> Add New Service
+              </Link>
+              <Link to="/dashboard" className="btn btn-outline" style={{ border: '1px solid var(--border)' }}>
+                <Users size={18} style={{ marginRight: '8px' }} /> Manage Staff
+              </Link>
+            </div>
+          </div>
+
+          {/* Emergency Modal */}
+          {showEmergencyModal && (
+            <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+              <div className="glass" style={{ padding: '32px', borderRadius: 'var(--radius-lg)', maxWidth: '500px', width: '90%', textAlign: 'center' }}>
+                <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(239,68,68,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
+                  <XCircle size={32} color="var(--secondary)" />
+                </div>
+                <h2 style={{ marginBottom: '12px' }}>Emergency Closure</h2>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
+                  This will close your salon for the remainder of today, cancel all upcoming appointments, and notify customers.
+                </p>
+
+                <div style={{ textAlign: 'left', marginBottom: '24px' }}>
+                  <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600 }}>Select Salon</label>
+                  <select
+                    className="form-control"
+                    value={selectedSalonToClose}
+                    onChange={(e) => setSelectedSalonToClose(e.target.value)}
+                    disabled={isClosing}
+                  >
+                    {salons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ flex: 1 }}
+                    onClick={() => setShowEmergencyModal(false)}
+                    disabled={isClosing}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ flex: 1, background: 'var(--secondary)', color: 'white' }}
+                    disabled={isClosing}
+                    onClick={async () => {
+                      setIsClosing(true);
+                      try {
+                        const today = new Date().toISOString().split('T')[0];
+                        // 1. Create closure
+                        const res = await api.post(`/dashboard/salons/${selectedSalonToClose}/closures`, {
+                          start_date: today,
+                          end_date: today,
+                          reason: 'Emergency Closure'
+                        });
+
+                        // 2. Cancel conflicting
+                        if (res.data.conflicting_count > 0) {
+                          await api.post(`/dashboard/salons/${selectedSalonToClose}/closures/${res.data.closure.id}/cancel-appointments`);
+                        }
+
+                        toast.success('Salon closed for today and customers notified.');
+                        setShowEmergencyModal(false);
+                        // Refresh snapshot
+                        api.get('/dashboard/overview').then(res => setOverview(res.data));
+                      } catch (err) {
+                        toast.error('Failed to initiate emergency closure.');
+                      } finally {
+                        setIsClosing(false);
+                      }
+                    }}
+                  >
+                    {isClosing ? 'Closing...' : 'Confirm Closure'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="home-page">
+      {/* Hero */}
+      <section className="hero">
+        <div className="container">
+          <div className="hero-content">
+            <div className="hero-badge">
+              <Sparkles size={16} /> Premium Salon Booking
+            </div>
+            <h1>
+              Discover & Book <span className="gradient-text">Beauty Services</span> Near You
+            </h1>
+            <p>Find the best salons, book appointments instantly, and look your best. All in one place.</p>
+
+            <div className="hero-search glass">
+              <Search size={20} />
+              <input
+                type="text"
+                placeholder="Search salons, services, or city..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              <Link to={`/salons${search ? `?search=${search}` : ''}`} className="btn btn-primary">
+                Search
+              </Link>
+            </div>
+
+            <div className="hero-stats">
+              <div className="hero-stat">
+                <strong>500+</strong>
+                <span>Salons</span>
+              </div>
+              <div className="hero-stat">
+                <strong>10K+</strong>
+                <span>Bookings</span>
+              </div>
+              <div className="hero-stat">
+                <strong>4.8</strong>
+                <span>Avg Rating</span>
+              </div>
+            </div>
+          </div>
+          <div className="hero-visual">
+            <div className="hero-image-grid">
+              <img src="https://images.unsplash.com/photo-1560066984-138dadb4c035?w=400" alt="Salon" className="hero-img-1" />
+              <img src="https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=300" alt="Styling" className="hero-img-2" />
+              <img src="https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=300" alt="Spa" className="hero-img-3" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Features */}
+      <section className="features">
+        <div className="container">
+          <h2>Why Choose <span className="gradient-text">Saloon</span></h2>
+          <div className="grid-4 features-grid">
+            <div className="feature-card glass">
+              <div className="feature-icon" style={{ background: 'rgba(124,58,237,0.15)' }}>
+                <Search size={24} color="var(--primary)" />
+              </div>
+              <h3>Discover Salons</h3>
+              <p>Browse salons near you with ratings, reviews, and galleries</p>
+            </div>
+            <div className="feature-card glass">
+              <div className="feature-icon" style={{ background: 'rgba(6,182,212,0.15)' }}>
+                <Calendar size={24} color="var(--accent)" />
+              </div>
+              <h3>Easy Booking</h3>
+              <p>Book appointments in seconds with real-time availability</p>
+            </div>
+            <div className="feature-card glass">
+              <div className="feature-icon" style={{ background: 'rgba(16,185,129,0.15)' }}>
+                <Star size={24} color="var(--success)" />
+              </div>
+              <h3>Verified Reviews</h3>
+              <p>Read genuine reviews from verified customers</p>
+            </div>
+            <div className="feature-card glass">
+              <div className="feature-icon" style={{ background: 'rgba(244,63,94,0.15)' }}>
+                <Shield size={24} color="var(--secondary)" />
+              </div>
+              <h3>Secure Payments</h3>
+              <p>Safe and secure payment processing for all services</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Featured Salons */}
+      {featured.length > 0 && (
+        <section className="featured-section">
+          <div className="container">
+            <div className="section-header">
+              <h2>Featured <span className="gradient-text">Salons</span></h2>
+              <Link to="/salons" className="btn btn-outline btn-sm">
+                View All <ArrowRight size={16} />
+              </Link>
+            </div>
+            <div className="grid-3">
+              {featured.map(salon => (
+                <SalonCard key={salon.id} salon={salon} />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* CTA */}
+      <section className="cta-section">
+        <div className="container">
+          <div className="cta-card glass">
+            <div className="cta-content">
+              <Scissors size={32} />
+              <h2>Own a Salon?</h2>
+              <p>Join our platform and reach thousands of customers. Manage appointments, staff, and analytics — all from one dashboard.</p>
+              <Link to="/register" className="btn btn-primary btn-lg">
+                Get Started Free <ArrowRight size={20} />
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <style>{`
         .hero {
           padding: 80px 0 60px;
           overflow: hidden;
@@ -304,6 +473,6 @@ export default function Home() {
           .cta-card { padding: 40px 24px; }
         }
       `}</style>
-        </div>
-    );
+    </div>
+  );
 }
