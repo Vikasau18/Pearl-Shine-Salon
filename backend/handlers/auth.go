@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -163,6 +164,87 @@ func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, user)
+}
+
+func (h *AuthHandler) ForgotPassword(c *gin.Context) {
+	var req models.ForgotPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var userID string
+	err := h.DB.QueryRow(context.Background(), "SELECT id FROM users WHERE email = $1", req.Email).Scan(&userID)
+	if err != nil {
+		// We return OK even if user doesn't exist for security reasons (don't reveal email existence)
+		c.JSON(http.StatusOK, gin.H{"message": "If an account exists with that email, a reset link has been sent."})
+		return
+	}
+
+	// Generate 6-digit code
+	randValue := time.Now().UnixNano()
+	code := fmt.Sprintf("%06d", randValue%1000000)
+
+	// Store token with expiry (1 hour)
+	expiresAt := time.Now().Add(1 * time.Hour)
+	_, err = h.DB.Exec(context.Background(),
+		"INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)",
+		userID, code, expiresAt)
+	if err != nil {
+		fmt.Printf("Error inserting password reset token: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate reset code"})
+		return
+	}
+
+	// Simulated email: print code to console
+	fmt.Printf("\n🔑 [PASSWORD RESET] Code for %s: %s\n\n", req.Email, code)
+
+	c.JSON(http.StatusOK, gin.H{"message": "If an account exists with that email, a reset code has been sent."})
+}
+
+func (h *AuthHandler) ResetPassword(c *gin.Context) {
+	var req models.ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Find the user ID for this email
+	var userID string
+	err := h.DB.QueryRow(context.Background(), "SELECT id FROM users WHERE email = $1", req.Email).Scan(&userID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or reset code"})
+		return
+	}
+
+	// Validate code and get user_id (ensure it belongs to THIS user)
+	var deletedID string
+	err = h.DB.QueryRow(context.Background(),
+		"DELETE FROM password_reset_tokens WHERE token = $1 AND user_id = $2 AND expires_at > NOW() RETURNING id",
+		req.Code, userID).Scan(&deletedID)
+
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired reset code"})
+		return
+	}
+
+	// Hash new password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+		return
+	}
+
+	// Update password
+	_, err = h.DB.Exec(context.Background(),
+		"UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2",
+		string(hashedPassword), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update password"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Password has been reset successfully. You can now login with your new password."})
 }
 
 func generateToken(user models.User) (string, error) {

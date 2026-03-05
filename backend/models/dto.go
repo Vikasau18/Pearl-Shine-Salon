@@ -15,25 +15,35 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+type ForgotPasswordRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+type ResetPasswordRequest struct {
+	Email       string `json:"email" binding:"required,email"`
+	Code        string `json:"code" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required,min=6"`
+}
+
 type AuthResponse struct {
 	Token string `json:"token"`
 	User  User   `json:"user"`
 }
 
 type CreateSalonRequest struct {
-	Name        string  `json:"name" binding:"required"`
-	Address     string  `json:"address" binding:"required"`
-	City        string  `json:"city" binding:"required"`
-	State       string  `json:"state"`
-	ZipCode     string  `json:"zip_code"`
-	Lat         float64 `json:"lat"`
-	Lng         float64 `json:"lng"`
-	Phone       string  `json:"phone"`
-	Email       string  `json:"email"`
-	Description string  `json:"description"`
-	ImageURL    string  `json:"image_url"`
-	OpeningTime string  `json:"opening_time"`
-	ClosingTime string  `json:"closing_time"`
+	Name        string  `json:"name" form:"name" binding:"required"`
+	Address     string  `json:"address" form:"address" binding:"required"`
+	City        string  `json:"city" form:"city" binding:"required"`
+	State       string  `json:"state" form:"state"`
+	ZipCode     string  `json:"zip_code" form:"zip_code"`
+	Lat         float64 `json:"lat" form:"lat"`
+	Lng         float64 `json:"lng" form:"lng"`
+	Phone       string  `json:"phone" form:"phone"`
+	Email       string  `json:"email" form:"email"`
+	Description string  `json:"description" form:"description"`
+	ImageURL    string  `json:"image_url" form:"image_url"`
+	OpeningTime string  `json:"opening_time" form:"opening_time"`
+	ClosingTime string  `json:"closing_time" form:"closing_time"`
 }
 
 type CreateServiceRequest struct {
@@ -73,6 +83,10 @@ type RescheduleRequest struct {
 	StartTime string `json:"start_time" binding:"required"`
 }
 
+type AdjustAppointmentTimeRequest struct {
+	NewEndTime string `json:"new_end_time" binding:"required"`
+}
+
 type CreateReviewRequest struct {
 	SalonID       string `json:"salon_id" binding:"required"`
 	StaffID       string `json:"staff_id"`
@@ -96,11 +110,11 @@ type CreatePromoRequest struct {
 }
 
 type JoinWaitlistRequest struct {
-	SalonID       string `json:"salon_id" binding:"required"`
-	ServiceID     string `json:"service_id" binding:"required"`
-	StaffID       string `json:"staff_id"`
-	PreferredDate string `json:"preferred_date" binding:"required"`
-	PreferredTime string `json:"preferred_time"`
+	SalonID        string   `json:"salon_id" binding:"required"`
+	ServiceID      string   `json:"service_id" binding:"required"`
+	StaffID        string   `json:"staff_id"`
+	PreferredDate  string   `json:"preferred_date" binding:"required"`
+	PreferredTimes []string `json:"preferred_times" binding:"required"`
 }
 
 type AvailableSlotsRequest struct {
@@ -111,9 +125,10 @@ type AvailableSlotsRequest struct {
 }
 
 type TimeSlot struct {
-	StartTime string `json:"start_time"`
-	EndTime   string `json:"end_time"`
-	Available bool   `json:"available"`
+	StartTime          string `json:"start_time"`
+	EndTime            string `json:"end_time"`
+	Available          bool   `json:"available"`
+	AvailabilityReason string `json:"availability_reason"` // available, booked, out_of_shift
 }
 
 type AnalyticsResponse struct {
@@ -153,4 +168,11 @@ type PaginatedResponse struct {
 	Limit      int         `json:"limit"`
 	TotalCount int         `json:"total_count"`
 	TotalPages int         `json:"total_pages"`
+}
+
+type OwnerOverview struct {
+	TodaysRevenue      float64 `json:"todays_revenue"`
+	TodaysAppointments int     `json:"todays_appointments"`
+	PendingRequests    int     `json:"pending_requests"`
+	CancelledToday     int     `json:"cancelled_today"`
 }

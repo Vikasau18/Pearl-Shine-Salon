@@ -9,17 +9,22 @@ import (
 
 	"saloon-backend/middleware"
 	"saloon-backend/models"
+	"saloon-backend/services"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type SalonHandler struct {
-	DB *pgxpool.Pool
+	DB                *pgxpool.Pool
+	CloudinaryService *services.CloudinaryService
 }
 
-func NewSalonHandler(db *pgxpool.Pool) *SalonHandler {
-	return &SalonHandler{DB: db}
+func NewSalonHandler(db *pgxpool.Pool, cloudinaryService *services.CloudinaryService) *SalonHandler {
+	return &SalonHandler{
+		DB:                db,
+		CloudinaryService: cloudinaryService,
+	}
 }
 
 func (h *SalonHandler) ListSalons(c *gin.Context) {
@@ -69,6 +74,14 @@ func (h *SalonHandler) ListSalons(c *gin.Context) {
 
 	query := fmt.Sprintf("SELECT %s%s%s FROM salons s WHERE s.is_active = true", selectCols, distanceCol, favCol)
 
+	// NEW: Filter by owner if user is a salon owner
+	userRole := middleware.GetUserRole(c)
+	if userRole == "salon_owner" {
+		query += fmt.Sprintf(" AND s.owner_id = $%d", argIdx)
+		args = append(args, userID)
+		argIdx++
+	}
+
 	// Filters
 	if city != "" {
 		query += fmt.Sprintf(" AND LOWER(s.city) = LOWER($%d)", argIdx)
@@ -97,9 +110,14 @@ func (h *SalonHandler) ListSalons(c *gin.Context) {
 	}
 
 	// Count query
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM salons s WHERE s.is_active = true")
+	countQuery := "SELECT COUNT(*) FROM salons s WHERE s.is_active = true"
+	countArgs := []interface{}{}
+	if userRole == "salon_owner" {
+		countQuery += " AND s.owner_id = $1"
+		countArgs = append(countArgs, userID)
+	}
 	var totalCount int
-	h.DB.QueryRow(context.Background(), countQuery).Scan(&totalCount)
+	h.DB.QueryRow(context.Background(), countQuery, countArgs...).Scan(&totalCount)
 
 	// Pagination
 	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
@@ -184,7 +202,7 @@ func (h *SalonHandler) GetSalon(c *gin.Context) {
 
 func (h *SalonHandler) CreateSalon(c *gin.Context) {
 	var req models.CreateSalonRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBind(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -197,8 +215,28 @@ func (h *SalonHandler) CreateSalon(c *gin.Context) {
 		req.ClosingTime = "21:00"
 	}
 
+	// Handle Image Upload
+	file, header, err := c.Request.FormFile("image")
+	if err == nil {
+		defer file.Close()
+
+		if h.CloudinaryService == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Cloudinary service is not configured"})
+			return
+		}
+
+		// Upload to Cloudinary
+		secureURL, uploadErr := h.CloudinaryService.UploadImage(context.Background(), file, header.Filename)
+		if uploadErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload image", "details": uploadErr.Error()})
+			return
+		}
+		req.ImageURL = secureURL
+	}
+
+	// Insert into Database
 	var s models.Salon
-	err := h.DB.QueryRow(context.Background(),
+	err = h.DB.QueryRow(context.Background(),
 		`INSERT INTO salons (owner_id, name, address, city, state, zip_code, lat, lng, phone, email, description, image_url, opening_time, closing_time) 
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		 RETURNING id, owner_id, name, address, city, COALESCE(state,''), COALESCE(zip_code,''),
@@ -224,7 +262,7 @@ func (h *SalonHandler) CreateSalon(c *gin.Context) {
 func (h *SalonHandler) UpdateSalon(c *gin.Context) {
 	salonID := c.Param("salon_id")
 	var req models.CreateSalonRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBind(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -238,10 +276,29 @@ func (h *SalonHandler) UpdateSalon(c *gin.Context) {
 		return
 	}
 
+	if req.OpeningTime == "" {
+		req.OpeningTime = "09:00"
+	}
+	if req.ClosingTime == "" {
+		req.ClosingTime = "21:00"
+	}
+
+	// Handle Optional Image Upload
+	file, header, err := c.Request.FormFile("image")
+	if err == nil {
+		defer file.Close()
+		if h.CloudinaryService != nil {
+			secureURL, uploadErr := h.CloudinaryService.UploadImage(context.Background(), file, header.Filename)
+			if uploadErr == nil {
+				req.ImageURL = secureURL
+			}
+		}
+	}
+
 	var s models.Salon
-	err := h.DB.QueryRow(context.Background(),
+	err = h.DB.QueryRow(context.Background(),
 		`UPDATE salons SET name=$1, address=$2, city=$3, state=$4, zip_code=$5, lat=$6, lng=$7,
-		 phone=$8, email=$9, description=$10, image_url=$11, 
+		 phone=$8, email=$9, description=$10, image_url=COALESCE(NULLIF($11, ''), image_url), 
 		 opening_time=$12, closing_time=$13, updated_at=NOW()
 		 WHERE id=$14
 		 RETURNING id, owner_id, name, address, city, COALESCE(state,''), COALESCE(zip_code,''),
@@ -257,6 +314,7 @@ func (h *SalonHandler) UpdateSalon(c *gin.Context) {
 		&s.CreatedAt, &s.UpdatedAt)
 
 	if err != nil {
+		fmt.Printf("Error updating salon: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update salon"})
 		return
 	}

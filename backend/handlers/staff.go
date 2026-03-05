@@ -115,20 +115,28 @@ func (h *StaffHandler) CreateStaff(c *gin.Context) {
 			s.ID, svcID)
 	}
 
-	// Assign default working hours (Mon-Fri 09:00-17:00, Sat 10:00-15:00, Sun Off)
+	// Fetch salon hours for defaults
+	var openTime, closeTime string
+	h.DB.QueryRow(context.Background(), "SELECT opening_time::text, closing_time::text FROM salons WHERE id = $1", salonID).Scan(&openTime, &closeTime)
+	if openTime == "" {
+		openTime = "09:00"
+		closeTime = "21:00"
+	}
+
+	// Assign default working hours based on salon hours
 	defaultHours := []struct {
 		day   int
 		start string
 		end   string
 		off   bool
 	}{
-		{0, "09:00", "17:00", true},  // Sunday (Off)
-		{1, "09:00", "17:00", false}, // Monday
-		{2, "09:00", "17:00", false}, // Tuesday
-		{3, "09:00", "17:00", false}, // Wednesday
-		{4, "09:00", "17:00", false}, // Thursday
-		{5, "09:00", "17:00", false}, // Friday
-		{6, "10:00", "15:00", false}, // Saturday
+		{0, openTime, closeTime, true},  // Sunday (Off)
+		{1, openTime, closeTime, false}, // Monday
+		{2, openTime, closeTime, false}, // Tuesday
+		{3, openTime, closeTime, false}, // Wednesday
+		{4, openTime, closeTime, false}, // Thursday
+		{5, openTime, closeTime, false}, // Friday
+		{6, openTime, closeTime, false}, // Saturday
 	}
 
 	for _, dh := range defaultHours {
@@ -137,7 +145,6 @@ func (h *StaffHandler) CreateStaff(c *gin.Context) {
 			 VALUES ($1, $2, $3, $4, $5)`,
 			s.ID, dh.day, dh.start, dh.end, dh.off)
 		if err != nil {
-			// Log error but continue
 			fmt.Printf("Failed to set default hours for staff %s day %d: %v\n", s.ID, dh.day, err)
 		}
 	}

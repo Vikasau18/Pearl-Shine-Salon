@@ -32,26 +32,36 @@ func (h *WaitlistHandler) JoinWaitlist(c *gin.Context) {
 	if req.StaffID != "" {
 		staffID = &req.StaffID
 	}
-	var preferredTime *string
-	if req.PreferredTime != "" {
-		preferredTime = &req.PreferredTime
+
+	tx, err := h.DB.Begin(context.Background())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
+	}
+	defer tx.Rollback(context.Background())
+
+	var lastWaitlistEntry models.Waitlist
+	for _, timeStr := range req.PreferredTimes {
+		err = tx.QueryRow(context.Background(),
+			`INSERT INTO waitlist (customer_id, salon_id, service_id, staff_id, preferred_date, preferred_time)
+			 VALUES ($1, $2, $3, $4, $5, $6)
+			 RETURNING id, customer_id, salon_id, service_id, staff_id, preferred_date::text, preferred_time::text, status, created_at`,
+			customerID, req.SalonID, req.ServiceID, staffID, req.PreferredDate, timeStr,
+		).Scan(&lastWaitlistEntry.ID, &lastWaitlistEntry.CustomerID, &lastWaitlistEntry.SalonID, &lastWaitlistEntry.ServiceID, &lastWaitlistEntry.StaffID,
+			&lastWaitlistEntry.PreferredDate, &lastWaitlistEntry.PreferredTime, &lastWaitlistEntry.Status, &lastWaitlistEntry.CreatedAt)
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to join waitlist at " + timeStr})
+			return
+		}
 	}
 
-	var w models.Waitlist
-	err := h.DB.QueryRow(context.Background(),
-		`INSERT INTO waitlist (customer_id, salon_id, service_id, staff_id, preferred_date, preferred_time)
-		 VALUES ($1, $2, $3, $4, $5, $6)
-		 RETURNING id, customer_id, salon_id, service_id, staff_id, preferred_date::text, preferred_time::text, status, created_at`,
-		customerID, req.SalonID, req.ServiceID, staffID, req.PreferredDate, preferredTime,
-	).Scan(&w.ID, &w.CustomerID, &w.SalonID, &w.ServiceID, &w.StaffID,
-		&w.PreferredDate, &w.PreferredTime, &w.Status, &w.CreatedAt)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to join waitlist", "details": err.Error()})
+	if err := tx.Commit(context.Background()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit waitlist entries"})
 		return
 	}
 
-	c.JSON(http.StatusCreated, w)
+	c.JSON(http.StatusCreated, gin.H{"message": "Joined waitlist for multiple slots", "count": len(req.PreferredTimes)})
 }
 
 func (h *WaitlistHandler) LeaveWaitlist(c *gin.Context) {
@@ -78,7 +88,7 @@ func (h *WaitlistHandler) GetSalonWaitlist(c *gin.Context) {
 		 FROM waitlist w
 		 JOIN users u ON u.id = w.customer_id
 		 JOIN services sv ON sv.id = w.service_id
-		 WHERE w.salon_id = $1 AND w.status = 'waiting'
+		 WHERE w.salon_id = $1 AND w.status = 'waiting' AND w.preferred_date >= CURRENT_DATE
 		 ORDER BY w.created_at`, salonID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch waitlist"})

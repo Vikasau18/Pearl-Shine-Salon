@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -15,14 +16,27 @@ import (
 )
 
 type AppointmentHandler struct {
-	DB             *pgxpool.Pool
-	BookingService *services.BookingService
+	DB              *pgxpool.Pool
+	BookingService  *services.BookingService
+	PushService     *services.PushService
+	WaitlistService *services.WaitlistService
 }
 
-func NewAppointmentHandler(db *pgxpool.Pool) *AppointmentHandler {
+func NewAppointmentHandler(db *pgxpool.Pool, scheduler *services.Scheduler) *AppointmentHandler {
 	return &AppointmentHandler{
-		DB:             db,
-		BookingService: services.NewBookingService(db),
+		DB:              db,
+		BookingService:  services.NewBookingService(db, scheduler),
+		WaitlistService: services.NewWaitlistService(db, nil), // PushService set later
+	}
+}
+
+func (h *AppointmentHandler) SetPushService(ps *services.PushService) {
+	h.PushService = ps
+	if h.WaitlistService != nil {
+		h.WaitlistService.PushService = ps
+	}
+	if h.BookingService != nil {
+		h.BookingService.SetPushService(ps)
 	}
 }
 
@@ -45,6 +59,16 @@ func (h *AppointmentHandler) BookAppointment(c *gin.Context) {
 		"appointment": appt,
 		"payment":     payment,
 	})
+
+	// Send immediate push notification (non-blocking)
+	if h.PushService != nil {
+		go h.PushService.SendToUser(context.Background(), customerID, services.PushPayload{
+			Title: "Booking Confirmed! ✅",
+			Body:  fmt.Sprintf("Your appointment for %s on %s at %s has been confirmed.", appt.ServiceName, appt.AppointmentDate, appt.StartTime),
+			Icon:  "/vite.svg",
+			URL:   "/appointments",
+		})
+	}
 }
 
 func (h *AppointmentHandler) GetMyAppointments(c *gin.Context) {
@@ -119,7 +143,7 @@ func (h *AppointmentHandler) GetSalonAppointments(c *gin.Context) {
 	query := `SELECT a.id, a.customer_id, a.salon_id, a.staff_id, a.service_id,
 		a.appointment_date::text, a.start_time::text, a.end_time::text, a.status,
 		COALESCE(a.notes,''), a.promo_code_id, a.created_at, a.updated_at,
-		s.name, st.name, sv.name, sv.price, u.name, u.email
+		s.name, st.name, sv.name, sv.price, u.name, u.email, COALESCE(u.phone,'')
 		FROM appointments a
 		JOIN salons s ON s.id = a.salon_id
 		JOIN staff st ON st.id = a.staff_id
@@ -167,7 +191,7 @@ func (h *AppointmentHandler) GetSalonAppointments(c *gin.Context) {
 			&a.AppointmentDate, &a.StartTime, &a.EndTime, &a.Status,
 			&a.Notes, &a.PromoCodeID, &a.CreatedAt, &a.UpdatedAt,
 			&a.SalonName, &a.StaffName, &a.ServiceName, &a.ServicePrice,
-			&a.CustomerName, &a.CustomerEmail)
+			&a.CustomerName, &a.CustomerEmail, &a.CustomerPhone)
 		appointments = append(appointments, a)
 	}
 	if appointments == nil {
@@ -263,6 +287,17 @@ func (h *AppointmentHandler) CancelAppointment(c *gin.Context) {
 		appointmentID)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Appointment cancelled"})
+
+	// Notify waitlist
+	if h.WaitlistService != nil {
+		var salonID, serviceID, staffID, dateStr, startTime string
+		err := h.DB.QueryRow(context.Background(),
+			"SELECT salon_id, service_id, staff_id, appointment_date::text, start_time::text FROM appointments WHERE id = $1",
+			appointmentID).Scan(&salonID, &serviceID, &staffID, &dateStr, &startTime)
+		if err == nil {
+			go h.WaitlistService.AutoAssignWaitlist(context.Background(), salonID, serviceID, staffID, dateStr, startTime)
+		}
+	}
 }
 
 func (h *AppointmentHandler) MarkNoShow(c *gin.Context) {
@@ -277,6 +312,65 @@ func (h *AppointmentHandler) MarkNoShow(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Marked as no-show"})
+
+	// Notify waitlist
+	if h.WaitlistService != nil {
+		var salonID, serviceID, staffID, dateStr, startTime string
+		err := h.DB.QueryRow(context.Background(),
+			"SELECT salon_id, service_id, staff_id, appointment_date::text, start_time::text FROM appointments WHERE id = $1",
+			appointmentID).Scan(&salonID, &serviceID, &staffID, &dateStr, &startTime)
+		if err == nil {
+			go h.WaitlistService.AutoAssignWaitlist(context.Background(), salonID, serviceID, staffID, dateStr, startTime)
+		}
+	}
+}
+
+func (h *AppointmentHandler) ApproveAppointment(c *gin.Context) {
+	appointmentID := c.Param("id")
+
+	// 1. Update status to confirmed
+	var customerID, serviceName, salonName, startTimeStr, apptDateStr string
+	err := h.DB.QueryRow(context.Background(),
+		`UPDATE appointments 
+		 SET status = 'confirmed', updated_at = NOW() 
+		 WHERE id = $1 AND status = 'pending'
+		 RETURNING customer_id, 
+		           (SELECT name FROM services WHERE id = appointments.service_id),
+		           (SELECT name FROM salons WHERE id = appointments.salon_id),
+		           start_time::text, appointment_date::text`,
+		appointmentID).Scan(&customerID, &serviceName, &salonName, &startTimeStr, &apptDateStr)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Appointment not found or already confirmed/cancelled"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Appointment approved successfully"})
+
+	// 2. Send immediate push notification
+	if h.PushService != nil {
+		go h.PushService.SendToUser(context.Background(), customerID, services.PushPayload{
+			Title: "Booking Confirmed! ✅",
+			Body:  fmt.Sprintf("Your appointment for %s at %s on %s at %s has been confirmed by the salon.", serviceName, salonName, apptDateStr, startTimeStr),
+			Icon:  "/vite.svg",
+			URL:   "/appointments",
+		})
+	}
+
+	// 3. Schedule look-ahead reminders (if within next 70 mins)
+	if h.BookingService != nil && h.BookingService.Scheduler != nil {
+		st, _ := time.Parse("15:04", startTimeStr)
+		dt, _ := time.Parse("2006-01-02", apptDateStr)
+		apptTime := time.Date(dt.Year(), dt.Month(), dt.Day(), st.Hour(), st.Minute(), 0, 0, time.Local)
+
+		if time.Until(apptTime) < 70*time.Minute {
+			// Schedule 1h reminder
+			h.BookingService.Scheduler.ScheduleReminder(context.Background(), apptTime, 60, appointmentID, customerID, serviceName, salonName, "reminder_1h_sent", "Appointment in 1 Hour", "Your appointment for %s at %s is in 1 hour. Get ready! 💇")
+
+			// Schedule 20m reminder
+			h.BookingService.Scheduler.ScheduleReminder(context.Background(), apptTime, 20, appointmentID, customerID, serviceName, salonName, "reminder_20m_sent", "Appointment in 20 Minutes", "Your appointment for %s at %s starts in 20 minutes. Head over! 🏃")
+		}
+	}
 }
 
 func (h *AppointmentHandler) CompleteAppointment(c *gin.Context) {
@@ -296,6 +390,23 @@ func (h *AppointmentHandler) CompleteAppointment(c *gin.Context) {
 		appointmentID)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Appointment completed"})
+}
+
+func (h *AppointmentHandler) AdjustAppointmentTime(c *gin.Context) {
+	appointmentID := c.Param("id")
+	var req models.AdjustAppointmentTimeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	err := h.BookingService.CascadeReschedule(c.Request.Context(), appointmentID, req.NewEndTime)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Appointment adjusted and subsequent ones rescheduled"})
 }
 
 func (h *AppointmentHandler) GetAvailableSlots(c *gin.Context) {

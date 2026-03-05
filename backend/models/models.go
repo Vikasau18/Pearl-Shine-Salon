@@ -114,6 +114,7 @@ type Appointment struct {
 	TotalPrice    float64 `json:"total_price,omitempty"`
 	CustomerName  string  `json:"customer_name,omitempty"`
 	CustomerEmail string  `json:"customer_email,omitempty"`
+	CustomerPhone string  `json:"customer_phone,omitempty"`
 }
 
 type Payment struct {

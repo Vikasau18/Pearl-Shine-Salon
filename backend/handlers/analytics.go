@@ -111,3 +111,38 @@ func (h *AnalyticsHandler) GetDashboard(c *gin.Context) {
 
 	c.JSON(http.StatusOK, analytics)
 }
+
+// GetOwnerOverview provides aggregated data across all salons owned by the user for the current day.
+func (h *AnalyticsHandler) GetOwnerOverview(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	var overview models.OwnerOverview
+
+	// Todays Appointments
+	h.DB.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM appointments a
+		 JOIN salons s ON s.id = a.salon_id
+		 WHERE s.owner_id = $1 AND a.appointment_date = CURRENT_DATE 
+		 AND a.status NOT IN ('cancelled', 'no_show')`, userID).Scan(&overview.TodaysAppointments)
+
+	// Todays Revenue
+	h.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(SUM(p.total), 0) FROM payments p 
+		 JOIN appointments a ON a.id = p.appointment_id 
+		 JOIN salons s ON s.id = a.salon_id
+		 WHERE s.owner_id = $1 AND a.appointment_date = CURRENT_DATE AND p.status = 'completed'`, userID).Scan(&overview.TodaysRevenue)
+
+	// Pending Requests
+	h.DB.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM appointments a
+		 JOIN salons s ON s.id = a.salon_id
+		 WHERE s.owner_id = $1 AND a.status = 'pending'`, userID).Scan(&overview.PendingRequests)
+
+	// Cancelled Today
+	h.DB.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM appointments a
+		 JOIN salons s ON s.id = a.salon_id
+		 WHERE s.owner_id = $1 AND a.appointment_date = CURRENT_DATE AND a.status = 'cancelled'`, userID).Scan(&overview.CancelledToday)
+
+	c.JSON(http.StatusOK, overview)
+}

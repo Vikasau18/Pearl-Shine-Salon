@@ -3,18 +3,19 @@ package routes
 import (
 	"saloon-backend/handlers"
 	"saloon-backend/middleware"
+	"saloon-backend/services"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
+func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool, pushService *services.PushService, scheduler *services.Scheduler, cloudinaryService *services.CloudinaryService) {
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(db)
-	salonHandler := handlers.NewSalonHandler(db)
+	salonHandler := handlers.NewSalonHandler(db, cloudinaryService)
 	serviceHandler := handlers.NewServiceHandler(db)
 	staffHandler := handlers.NewStaffHandler(db)
-	appointmentHandler := handlers.NewAppointmentHandler(db)
+	appointmentHandler := handlers.NewAppointmentHandler(db, scheduler)
 	reviewHandler := handlers.NewReviewHandler(db)
 	paymentHandler := handlers.NewPaymentHandler(db)
 	favoriteHandler := handlers.NewFavoriteHandler(db)
@@ -22,6 +23,11 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 	waitlistHandler := handlers.NewWaitlistHandler(db)
 	analyticsHandler := handlers.NewAnalyticsHandler(db)
 	notificationHandler := handlers.NewNotificationHandler(db)
+	pushHandler := handlers.NewPushHandler(pushService)
+	closureHandler := handlers.NewClosureHandler(db, pushService)
+
+	// Inject push service into appointment handler
+	appointmentHandler.SetPushService(pushService)
 
 	api := r.Group("/api")
 
@@ -37,6 +43,8 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 	{
 		auth.POST("/register", authHandler.Register)
 		auth.POST("/login", authHandler.Login)
+		auth.POST("/forgot-password", authHandler.ForgotPassword)
+		auth.POST("/reset-password", authHandler.ResetPassword)
 		auth.GET("/me", middleware.AuthRequired(), authHandler.GetMe)
 		auth.PUT("/profile", middleware.AuthRequired(), authHandler.UpdateProfile)
 	}
@@ -54,6 +62,11 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 		salons.GET("/:id/reviews", reviewHandler.GetSalonReviews)
 		salons.GET("/:id/gallery", salonHandler.GetGallery)
 	}
+
+	// ─────────────────────────────────────────────
+	// PUBLIC PUSH ROUTES
+	// ─────────────────────────────────────────────
+	api.GET("/push/vapid-key", pushHandler.GetVAPIDKey)
 
 	// ─────────────────────────────────────────────
 	// AUTHENTICATED CUSTOMER ROUTES
@@ -87,6 +100,10 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 		customer.GET("/notifications/unread-count", notificationHandler.GetUnreadCount)
 		customer.PUT("/notifications/:id/read", notificationHandler.MarkAsRead)
 		customer.PUT("/notifications/read-all", notificationHandler.MarkAllRead)
+
+		// Push Subscriptions
+		customer.POST("/push/subscribe", pushHandler.Subscribe)
+		customer.DELETE("/push/unsubscribe", pushHandler.Unsubscribe)
 	}
 
 	// ─────────────────────────────────────────────
@@ -96,6 +113,9 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 	dashboard.Use(middleware.AuthRequired())
 	dashboard.Use(middleware.RoleRequired("salon_owner", "admin", "staff"))
 	{
+		// Global dashboard stats (all salons)
+		dashboard.GET("/overview", analyticsHandler.GetOwnerOverview)
+
 		// Salon management
 		dashboard.POST("/salons", salonHandler.CreateSalon)
 		dashboard.GET("/salons", salonHandler.GetMySalons)
@@ -121,8 +141,10 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 
 			// Appointments
 			salon.GET("/appointments", appointmentHandler.GetSalonAppointments)
+			salon.PUT("/appointments/:id/approve", appointmentHandler.ApproveAppointment)
 			salon.PUT("/appointments/:id/no-show", appointmentHandler.MarkNoShow)
 			salon.PUT("/appointments/:id/complete", appointmentHandler.CompleteAppointment)
+			salon.PUT("/appointments/:id/adjust-time", appointmentHandler.AdjustAppointmentTime)
 
 			// Payments
 			salon.GET("/payments", paymentHandler.GetSalonPayments)
@@ -139,6 +161,12 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 
 			// Analytics
 			salon.GET("/analytics", analyticsHandler.GetDashboard)
+
+			// Closures / Holidays
+			salon.GET("/closures", closureHandler.GetClosures)
+			salon.POST("/closures", closureHandler.CreateClosure)
+			salon.DELETE("/closures/:closure_id", closureHandler.DeleteClosure)
+			salon.POST("/closures/:closure_id/cancel-appointments", closureHandler.CancelConflicting)
 		}
 	}
 }
